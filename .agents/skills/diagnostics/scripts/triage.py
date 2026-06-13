@@ -20,6 +20,15 @@ ASSUMPTION_CODES = {
 }
 
 
+# A Cook's D this large is influential regardless of n. Required on top of the
+# relative 5*(4/n) rule, which shrinks with n and fires on chance points at scale.
+COOKS_ABS_FLOOR = 0.5
+
+
+def is_severe_cooks(cooks_distance: float, n: int) -> bool:
+    return cooks_distance > 5 * (4 / n) and cooks_distance > COOKS_ABS_FLOOR
+
+
 def build_verdict(
     assumptions: list[AssumptionCheck],
     influence: InfluenceReport,
@@ -29,9 +38,9 @@ def build_verdict(
     warns = [a for a in assumptions if a.status == Status.WARN]
     n_fail, n_warn = len(fails), len(warns)
 
+    n = _n_from(influence, assumptions)
     severe_influence = any(
-        p.cooks_distance > 5 * (4 / _n_from(influence, assumptions))
-        for p in influence.cooks_d_outliers
+        is_severe_cooks(p.cooks_distance, n) for p in influence.cooks_d_outliers
     )
 
     bv = bias_variance.verdict

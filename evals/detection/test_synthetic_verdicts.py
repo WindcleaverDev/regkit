@@ -33,7 +33,7 @@ def outputs(tmp_path_factory) -> dict[str, dict]:
     for name in ("clean", "heteroscedastic", "influential"):
         out_dir = out_root / name
         fit = run_cli(
-            "linear-regression/scripts/fit.py",
+            ".agents/skills/linear-regression/scripts/fit.py",
             "--data", f"examples/data/{name}.csv",
             "--target", "y",
             "--features", "x1,x2",
@@ -41,7 +41,7 @@ def outputs(tmp_path_factory) -> dict[str, dict]:
         )
         assert fit.returncode == 0, fit.stderr
         diag = run_cli(
-            "diagnostics/scripts/diagnose.py",
+            ".agents/skills/diagnostics/scripts/diagnose.py",
             "--fit-report", str(out_dir / "report.json"),
             "--data", f"examples/data/{name}.csv",
             "--output", str(out_dir),

@@ -8,11 +8,21 @@ style.css exactly.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 import plotly.graph_objects as go
 import plotly.io as pio
 from scipy import stats
+
+if TYPE_CHECKING:
+    from regression_pack_core.schemas import (
+        CalibrationData,
+        CVCurve,
+        MarginalEffect,
+        RegularizationPath,
+        ROCData,
+    )
 
 # Constants — must match the design tokens table exactly
 ACCENT = "#0F766E"
@@ -64,15 +74,17 @@ def figure(title: str | None = None) -> go.Figure:
     return fig
 
 
-def to_inline_html(fig: go.Figure, div_id: str | None = None) -> str:
+def to_inline_html(fig: go.Figure, div_id: str | None = None, *, include_js: bool = True) -> str:
     """Render a figure to inline HTML — Plotly JS inlined, no CDN.
 
-    Mode bar hidden, responsive.
+    Mode bar hidden, responsive. Plotly JS is ~4.5 MB: in a report with
+    several figures, pass include_js=True for the first figure only and
+    include_js=False for the rest, or the library is embedded once per plot.
     """
     return pio.to_html(
         fig,
         full_html=False,
-        include_plotlyjs=True,
+        include_plotlyjs=True if include_js else False,
         div_id=div_id,
         config={"displayModeBar": False, "responsive": True},
         default_height=420,
@@ -274,4 +286,236 @@ def leverage_plot(
     fig.add_hline(y=0, line=dict(color=INK_SOFT, width=1, dash="dot"))
     fig.update_xaxes(title_text="Leverage")
     fig.update_yaxes(title_text="Studentized residuals")
+    return fig
+
+
+# ─── Phase 2 plot helpers ─────────────────────────────────────────────────────
+
+
+def roc_curve(roc: ROCData, *, title: str | None = None) -> go.Figure:
+    """ROC curve with diagonal chance reference and AUC annotation."""
+    fig = figure(title or "ROC curve")
+    fig.add_trace(
+        go.Scatter(
+            x=[0, 1], y=[0, 1],
+            mode="lines",
+            line=dict(color=INK_SOFT, width=1, dash="dash"),
+            hoverinfo="skip",
+            name="Chance",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=roc.fpr, y=roc.tpr,
+            mode="lines",
+            line=dict(color=ACCENT, width=2),
+            name=f"AUC = {roc.auc:.3f}",
+            hovertemplate="FPR %{x:.3f}<br>TPR %{y:.3f}<extra></extra>",
+        )
+    )
+    fig.add_annotation(
+        x=0.98, y=0.06,
+        xref="paper", yref="paper",
+        text=f"AUC = {roc.auc:.3f}",
+        showarrow=False,
+        font=dict(size=13, color=ACCENT),
+        xanchor="right",
+    )
+    fig.update_xaxes(title_text="False positive rate", range=[-0.02, 1.02])
+    fig.update_yaxes(title_text="True positive rate", range=[-0.02, 1.02])
+    fig.update_layout(showlegend=False)
+    return fig
+
+
+def calibration_plot(cal: CalibrationData, *, title: str | None = None) -> go.Figure:
+    """Reliability diagram — observed frequency vs predicted probability per bin."""
+    fig = figure(title or f"Calibration (Brier = {cal.brier_score:.3f})")
+    # Perfect calibration reference
+    fig.add_trace(
+        go.Scatter(
+            x=[0, 1], y=[0, 1],
+            mode="lines",
+            line=dict(color=INK_SOFT, width=1, dash="dash"),
+            hoverinfo="skip",
+            name="Perfect calibration",
+        )
+    )
+    hover = [
+        f"bin centre {c:.2f}<br>observed {o:.3f}<br>n = {n}"
+        for c, o, n in zip(cal.bin_centers, cal.observed_frequencies, cal.bin_counts, strict=True)
+    ]
+    fig.add_trace(
+        go.Bar(
+            x=cal.bin_centers,
+            y=cal.observed_frequencies,
+            marker=dict(color=ACCENT, opacity=0.75),
+            text=hover,
+            hoverinfo="text",
+            name="Observed frequency",
+            width=[0.08] * len(cal.bin_centers),
+        )
+    )
+    fig.update_xaxes(title_text="Mean predicted probability", range=[-0.05, 1.05])
+    fig.update_yaxes(title_text="Observed frequency", range=[-0.05, 1.05])
+    fig.update_layout(showlegend=False)
+    return fig
+
+
+def regularization_path(
+    path: RegularizationPath,
+    selected_alpha: float | None = None,
+    *,
+    title: str | None = None,
+) -> go.Figure:
+    """Coefficient paths: one line per feature, x = log10(α)."""
+    fig = figure(title or "Regularisation path")
+    log_alphas = np.log10(np.asarray(path.alphas, dtype=float))
+    coefs = np.asarray(path.coefficients, dtype=float)  # shape (n_alphas, n_features)
+
+    n_features = len(path.feature_names)
+    # Sequential palette derived from ACCENT (teal family)
+    palette = [
+        f"hsl({h}, 60%, 45%)"
+        for h in np.linspace(160, 200, n_features).tolist()
+    ]
+    for j, (fname, color) in enumerate(zip(path.feature_names, palette, strict=True)):
+        fig.add_trace(
+            go.Scatter(
+                x=log_alphas.tolist(),
+                y=coefs[:, j].tolist(),
+                mode="lines",
+                line=dict(color=color, width=1.5),
+                name=fname,
+                hovertemplate=f"{fname}<br>log α=%{{x:.2f}}<br>β=%{{y:.4g}}<extra></extra>",
+            )
+        )
+    if selected_alpha is not None:
+        fig.add_vline(
+            x=float(np.log10(selected_alpha)),
+            line=dict(color=WARN, width=1.5, dash="dash"),
+            annotation_text=f"α={selected_alpha:.3g}",
+            annotation_position="top right",
+        )
+    fig.update_xaxes(title_text="log₁₀(α)")
+    fig.update_yaxes(title_text="Coefficient")
+    fig.update_layout(showlegend=True, legend=dict(font=dict(size=10)))
+    return fig
+
+
+def cv_curve(curve: CVCurve, *, title: str | None = None) -> go.Figure:
+    """CV score vs log10(α) with ±1 SD band and selected-α markers."""
+    fig = figure(title or f"CV {curve.scoring} vs α")
+    log_alphas = np.asarray(curve.alphas, dtype=float)
+    means = np.asarray(curve.mean_scores, dtype=float)
+    stds = np.asarray(curve.std_scores, dtype=float)
+    log_a = np.log10(log_alphas)
+
+    # ±1 SD band
+    fig.add_trace(
+        go.Scatter(
+            x=np.concatenate([log_a, log_a[::-1]]).tolist(),
+            y=np.concatenate([means + stds, (means - stds)[::-1]]).tolist(),
+            fill="toself",
+            fillcolor="rgba(15,118,110,0.12)",
+            line=dict(color="rgba(0,0,0,0)"),
+            hoverinfo="skip",
+            name="±1 SD",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=log_a.tolist(),
+            y=means.tolist(),
+            mode="lines",
+            line=dict(color=ACCENT, width=2),
+            hovertemplate="log α=%{x:.2f}<br>score=%{y:.4f}<extra></extra>",
+            name="CV mean",
+        )
+    )
+    fig.add_vline(
+        x=float(np.log10(curve.selected_alpha)),
+        line=dict(color=WARN, width=1.5, dash="dash"),
+        annotation_text="selected α",
+        annotation_position="top left",
+    )
+    if curve.alpha_1se is not None:
+        fig.add_vline(
+            x=float(np.log10(curve.alpha_1se)),
+            line=dict(color=INK_SOFT, width=1, dash="dot"),
+            annotation_text="1-SE α",
+            annotation_position="top right",
+        )
+    fig.update_xaxes(title_text="log₁₀(α)")
+    fig.update_yaxes(title_text=curve.scoring.replace("_", " "))
+    fig.update_layout(showlegend=False)
+    return fig
+
+
+def marginal_effects_plot(
+    effects: list[MarginalEffect], *, title: str | None = None
+) -> go.Figure:
+    """Forest plot of average marginal effects with 95% CIs."""
+    features = [e.feature for e in effects]
+    ames = [e.ame for e in effects]
+    lowers = [e.ci_lower for e in effects]
+    uppers = [e.ci_upper for e in effects]
+
+    fig = figure(title or "Average marginal effects")
+    fig.add_trace(
+        go.Scatter(
+            x=ames,
+            y=features,
+            mode="markers",
+            marker=dict(color=ACCENT, size=9),
+            error_x=dict(
+                type="data",
+                symmetric=False,
+                array=[u - a for a, u in zip(ames, uppers, strict=True)],
+                arrayminus=[a - lo for a, lo in zip(ames, lowers, strict=True)],
+                color=INK_SOFT,
+                thickness=1.5,
+                width=4,
+            ),
+            hovertemplate="%{y}: AME = %{x:.4g}<extra></extra>",
+        )
+    )
+    fig.add_vline(x=0, line=dict(color=INK_SOFT, width=1, dash="dot"))
+    fig.update_yaxes(autorange="reversed")
+    fig.update_xaxes(title_text="Average marginal effect on probability (95% CI)")
+    return fig
+
+
+def coef_comparison(
+    model_names: list[str],
+    features: list[str],
+    coefs_by_model: dict[str, list[float]],
+    *,
+    title: str | None = None,
+) -> go.Figure:
+    """Grouped horizontal bars — one group per feature, one bar per model."""
+    # Up to 4 models; palette uses ACCENT, ACCENT_LIGHT, and two muted variants
+    palette = [ACCENT, ACCENT_LIGHT, "#6366F1", "#F59E0B"]
+    fig = figure(title or "Coefficient comparison")
+    for i, name in enumerate(model_names):
+        coefs = coefs_by_model.get(name, [])
+        # Pad/fill None where a feature wasn't in this model
+        y_vals = [c if c is not None else 0.0 for c in coefs]
+        fig.add_trace(
+            go.Bar(
+                x=y_vals,
+                y=features,
+                orientation="h",
+                name=name,
+                marker=dict(color=palette[i % len(palette)], opacity=0.8),
+                hovertemplate=f"{name}<br>%{{y}}: %{{x:.4g}}<extra></extra>",
+            )
+        )
+    fig.add_vline(x=0, line=dict(color=INK_SOFT, width=1, dash="dot"))
+    fig.update_yaxes(autorange="reversed")
+    fig.update_xaxes(title_text="Coefficient")
+    fig.update_layout(
+        barmode="group",
+        showlegend=True,
+        legend=dict(font=dict(size=10)),
+    )
     return fig

@@ -18,7 +18,7 @@ import pytest
 import statsmodels.api as sm
 
 REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO / "diagnostics" / "scripts"))
+sys.path.insert(0, str(REPO / ".agents" / "skills" / "diagnostics" / "scripts"))
 
 import assumptions as assumptions_mod  # noqa: E402
 import influence as influence_mod  # noqa: E402

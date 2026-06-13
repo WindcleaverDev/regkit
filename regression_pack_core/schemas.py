@@ -91,6 +91,7 @@ class InterpretationFact(BaseModel):
         "categorical_dummy",
         "polynomial_term",
         "interaction_term",
+        "logistic_marginal",
     ]
     fact: str  # canonical claim
     confidence: Literal["high", "medium", "low"]  # based on p-value + CI width
@@ -151,8 +152,11 @@ class InfluencePoint(BaseModel):
 
 
 class InfluenceReport(BaseModel):
-    high_leverage: list[InfluencePoint]  # leverage > 2*(k+1)/n
-    cooks_d_outliers: list[InfluencePoint]  # Cook's D > 4/n
+    high_leverage: list[InfluencePoint]  # leverage > 2*(k+1)/n, top entries by leverage
+    cooks_d_outliers: list[InfluencePoint]  # Cook's D > 4/n, top entries by Cook's D
+    n_high_leverage: int = 0  # total flagged count (lists above may be truncated)
+    n_cooks_d_outliers: int = 0
+    truncated: bool = False  # True if either list was capped
     summary: str  # human-readable summary
     max_cooks_d: float
     max_leverage: float
@@ -217,4 +221,191 @@ class PreAnalysisReport(BaseModel):
     suspected_nonlinearity: list[str]
     flags: list[Flag] = Field(default_factory=list)
     modeling_recommendations: dict  # {"transform_target": str|None, "consider_polynomial": [str], ...}
+    report_html_path: str | None = None
+
+
+# ─── Logistic regression schemas ─────────────────────────────────────────────
+
+
+class OddsRatioRow(BaseModel):
+    """One row in a logistic regression coefficient table."""
+
+    feature: str
+    log_odds_coefficient: float  # β
+    odds_ratio: float  # exp(β)
+    std_error: float
+    z_stat: float
+    p_value: float
+    ci_lower_log_odds: float
+    ci_upper_log_odds: float
+    ci_lower_odds_ratio: float
+    ci_upper_odds_ratio: float
+
+
+class MarginalEffect(BaseModel):
+    """Average marginal effect — average change in predicted probability
+    when this feature increases by one unit (or switches to 1 for dummies)."""
+
+    feature: str
+    ame: float  # average marginal effect, on probability scale
+    std_error: float
+    ci_lower: float
+    ci_upper: float
+    p_value: float
+
+
+class ROCData(BaseModel):
+    fpr: list[float]  # downsampled to ~100 points for plotting
+    tpr: list[float]
+    thresholds: list[float]
+    auc: float
+
+
+class CalibrationData(BaseModel):
+    """Reliability diagram — predicted probability bins vs observed frequency."""
+
+    bin_centers: list[float]  # ~10 bins
+    observed_frequencies: list[float]
+    bin_counts: list[int]
+    brier_score: float
+
+
+class ClassificationStats(BaseModel):
+    accuracy: float
+    balanced_accuracy: float
+    precision: float  # for positive class
+    recall: float  # for positive class
+    f1: float
+    confusion_matrix: list[list[int]]  # [[TN, FP], [FN, TP]]
+    threshold: float  # decision threshold used (default 0.5)
+    n_observations: int
+    class_balance: float  # positive class rate in training data
+
+
+class LogisticRegressionReport(BaseModel):
+    """Complete structured output of the logistic-regression skill."""
+
+    fit_statistics: dict  # n_obs, n_features, log_likelihood, ll_null, pseudo_r_squared, aic, bic, converged, n_iterations
+    coefficients: list[OddsRatioRow]
+    marginal_effects: list[MarginalEffect]
+    interpretations: list[InterpretationFact]
+    classification_stats: ClassificationStats
+    roc: ROCData
+    calibration: CalibrationData
+    headline: str
+    target_name: str
+    positive_class: str | int  # which class is "1"
+    feature_transforms: dict[str, str] = Field(default_factory=dict)
+    robust_se_used: str | None = None
+    flags: list[Flag] = Field(default_factory=list)
+    recommendations: list[Recommendation] = Field(default_factory=list)
+    report_html_path: str | None = None
+
+
+# ─── Regularised regression schemas ──────────────────────────────────────────
+
+
+class RegularizationPath(BaseModel):
+    """Coefficient path along α — how each feature's coefficient shrinks
+    as regularisation strength increases."""
+
+    alphas: list[float]  # log-spaced
+    feature_names: list[str]
+    coefficients: list[list[float]]  # coefficients[i][j] = β for alphas[i], feature_names[j]
+
+
+class CVCurve(BaseModel):
+    """Cross-validation score as α varies."""
+
+    alphas: list[float]
+    mean_scores: list[float]  # mean across folds (R² or neg MSE)
+    std_scores: list[float]
+    scoring: Literal["r2", "neg_mean_squared_error", "neg_root_mean_squared_error"]
+    selected_alpha: float  # minimises CV error
+    alpha_1se: float | None = None  # one-standard-error rule (more parsimonious)
+
+
+class FeatureSelection(BaseModel):
+    """For Lasso/ElasticNet — which features survived at the chosen α."""
+
+    n_selected: int
+    n_dropped: int
+    selected_features: list[str]
+    dropped_features: list[str]
+
+
+class RegularizedRegressionReport(BaseModel):
+    method: Literal["ridge", "lasso", "elasticnet"]
+    selected_alpha: float
+    selected_l1_ratio: float | None = None  # for elasticnet
+    fit_statistics: FitStatistics
+    coefficients: list[CoefficientRow]  # at the chosen α
+    path: RegularizationPath
+    cv_curve: CVCurve
+    feature_selection: FeatureSelection | None = None  # populated for lasso/elasticnet
+    interpretations: list[InterpretationFact]
+    headline: str
+    comparison_to_ols: dict | None = None  # {ols_r2, regularised_r2, n_shrunk, n_dropped}
+    flags: list[Flag] = Field(default_factory=list)
+    recommendations: list[Recommendation] = Field(default_factory=list)
+    report_html_path: str | None = None
+
+
+# ─── Model comparison schemas ─────────────────────────────────────────────────
+
+
+class ModelEntry(BaseModel):
+    """One model's summary, suitable for cross-model comparison."""
+
+    name: str  # human-readable label
+    source_report_path: str  # path to the original report.json
+    family: Literal["linear", "logistic", "ridge", "lasso", "elasticnet"]
+    n_observations: int
+    n_features: int
+    fit_quality_primary: float  # adj_r² for linear family, pseudo_r² for logistic
+    aic: float | None = None
+    bic: float | None = None
+    cv_score_mean: float | None = None
+    cv_score_std: float | None = None
+    notes: list[str] = Field(default_factory=list)  # e.g. "robust SE", "log-target"
+
+
+class LRTestResult(BaseModel):
+    """Likelihood-ratio test for nested model pairs."""
+
+    nested_model: str  # name of the simpler model
+    full_model: str  # name of the more complex model
+    likelihood_ratio: float
+    df: int
+    p_value: float
+    conclusion: str  # e.g. "Full model significantly better (p < 0.01)"
+
+
+class AkaikeWeights(BaseModel):
+    """For non-nested comparison: AIC differences and Akaike weights."""
+
+    model_names: list[str]
+    delta_aic: list[float]  # Δ_i = AIC_i - AIC_min
+    weights: list[float]  # exp(-Δ/2) normalised
+
+
+class ComparisonVerdict(BaseModel):
+    overall: Literal[
+        "clear_winner",
+        "competitive_tie",
+        "complementary_strengths",
+        "all_inadequate",
+    ]
+    recommended_model: str | None = None
+    headline: str
+    rationale: str
+
+
+class ModelComparisonReport(BaseModel):
+    models: list[ModelEntry]
+    lr_tests: list[LRTestResult] = Field(default_factory=list)
+    akaike_weights: AkaikeWeights | None = None
+    verdict: ComparisonVerdict
+    flags: list[Flag] = Field(default_factory=list)
+    recommendations: list[Recommendation] = Field(default_factory=list)
     report_html_path: str | None = None

@@ -8,7 +8,7 @@ What to do when each flag code is raised. Each section maps to one
 The coefficients are fine; the standard errors are not.
 
 1. **Robust standard errors** — refit with `--robust-se HC3` (n < 250) or
-   `HC1` (larger samples). See `linear-regression/references/robust_se.md`
+   `HC1` (larger samples). See `.agents/skills/linear-regression/references/robust_se.md`
    for the full decision tree.
 2. **Transform the target** — if the target is positive and the variance
    grows with the mean, `--log-target` often removes the heteroscedasticity

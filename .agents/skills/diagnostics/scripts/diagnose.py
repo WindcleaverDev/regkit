@@ -24,7 +24,7 @@ import bias_variance as bias_variance_mod  # noqa: E402
 import influence as influence_mod  # noqa: E402
 from render import render_report  # noqa: E402
 from residuals import residual_data  # noqa: E402
-from triage import ASSUMPTION_CODES, build_verdict  # noqa: E402
+from triage import ASSUMPTION_CODES, build_verdict, is_severe_cooks  # noqa: E402
 
 from regression_pack_core import validators  # noqa: E402
 from regression_pack_core.schemas import (  # noqa: E402
@@ -43,7 +43,7 @@ REMEDIATIONS: dict[str, tuple[str, str]] = {
     "HETEROSCEDASTICITY": (
         "use_robust_se",
         "Refit with heteroscedasticity-robust standard errors (HC3 for small samples), "
-        "or log/sqrt-transform the target. See linear-regression/references/robust_se.md.",
+        "or log/sqrt-transform the target. See .agents/skills/linear-regression/references/robust_se.md.",
     ),
     "MISSED_NONLINEARITY": (
         "add_polynomial_term",
@@ -193,15 +193,17 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
     n = len(X)
-    severe_cooks = [p for p in influence.cooks_d_outliers if p.cooks_distance > 5 * (4 / n)]
+    severe_cooks = [
+        p for p in influence.cooks_d_outliers if is_severe_cooks(p.cooks_distance, n)
+    ]
     if severe_cooks:
         flags.append(
             Flag(
                 severity=Severity.HIGH,
                 code="HIGH_COOKS_D",
                 message=(
-                    f"{len(severe_cooks)} observation(s) exceed the Cook's D threshold by >5x "
-                    f"(max D = {influence.max_cooks_d:.3f}); estimates may hinge on them."
+                    f"{len(severe_cooks)} observation(s) have severe Cook's distance "
+                    f"(max D = {influence.max_cooks_d:.3g}); estimates may hinge on them."
                 ),
                 detail={"rows": [p.row_index for p in severe_cooks]},
             )

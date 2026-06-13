@@ -12,6 +12,15 @@ wheels/
 # Generated outputs
 examples/data/
 examples/output/
+results/
+tests/data/
+
+# Claude Code session state
+.claude/
+
+# Build / phase planning docs
+REGRESSION_PACK_BUILD.md
+REGRESSION_PACK_BUILD_PHASE_2.md
 
 # Tooling
 .pytest_cache/

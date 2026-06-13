@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import html
 
+import numpy as np
+
 from regression_pack_core import plotting, reports
 from regression_pack_core.schemas import DiagnosticsReport
 
@@ -13,6 +15,30 @@ TONE_BY_OVERALL = {
     "problematic": "warn",
     "unreliable": "fail",
 }
+
+MAX_TABLE_ROWS = 20
+MAX_PLOT_POINTS = 2000
+
+
+def _downsample_for_plots(resid_data: dict) -> tuple[dict, int]:
+    """Cap per-point plot data at MAX_PLOT_POINTS so reports stay small and
+    LOWESS stays fast on large n. Keeps every extreme point (top Cook's D and
+    |standardized residual|) plus an even sample of the rest; assumption
+    tests and the influence analysis always use the full data.
+    Returns (possibly downsampled data, original n).
+    """
+    n = len(resid_data["fitted"])
+    if n <= MAX_PLOT_POINTS:
+        return resid_data, n
+
+    cooks = np.asarray(resid_data["cooks_d"])
+    std_resid = np.asarray(resid_data["std_residuals"])
+    n_extreme = 100
+    keep = set(np.argsort(cooks)[::-1][:n_extreme].tolist())
+    keep |= set(np.argsort(np.abs(std_resid))[::-1][:n_extreme].tolist())
+    keep |= set(np.linspace(0, n - 1, MAX_PLOT_POINTS - len(keep)).astype(int).tolist())
+    idx = sorted(keep)
+    return {key: [values[i] for i in idx] for key, values in resid_data.items()}, n
 
 
 def _assumptions_table(report: DiagnosticsReport) -> str:
@@ -41,9 +67,12 @@ def _influence_section(report: DiagnosticsReport) -> str:
     flagged.update({p.row_index: p for p in report.influence.cooks_d_outliers})
     if not flagged:
         return "<p>No influential observations detected.</p>"
+
+    # Most influential first; the table shows at most MAX_TABLE_ROWS
+    ordered = sorted(flagged.values(), key=lambda p: p.cooks_distance, reverse=True)
+    shown = ordered[:MAX_TABLE_ROWS]
     rows = []
-    for idx in sorted(flagged):
-        p = flagged[idx]
+    for p in shown:
         dffits = f"{p.dffits:.3f}" if p.dffits is not None else "—"
         rows.append(
             "<tr>"
@@ -59,7 +88,17 @@ def _influence_section(report: DiagnosticsReport) -> str:
         "<th>Row</th><th>Leverage</th><th>Cook's D</th><th>Studentized residual</th><th>DFFITS</th>"
         f"</tr></thead><tbody>{''.join(rows)}</tbody></table>"
     )
-    return f"<p>{html.escape(report.influence.summary)}</p>{table}"
+    total_flagged = max(
+        report.influence.n_high_leverage, report.influence.n_cooks_d_outliers, len(flagged)
+    )
+    note = ""
+    if total_flagged > len(shown):
+        note = (
+            f'<p style="font-size:12px;color:var(--ink-soft);">Showing the {len(shown)} '
+            f"most influential of {total_flagged} flagged observations (ranked by Cook's D); "
+            "full top-50 details are in diagnostics.json.</p>"
+        )
+    return f"<p>{html.escape(report.influence.summary)}</p>{table}{note}"
 
 
 def render_report(
@@ -81,6 +120,7 @@ def render_report(
     assumptions_section = reports.section("Assumption checks", _assumptions_table(report))
 
     # 3. Diagnostic plots (grid-2)
+    resid_data, full_n = _downsample_for_plots(resid_data)
     fitted = resid_data["fitted"]
     residuals = resid_data["residuals"]
     plots = [
@@ -95,11 +135,19 @@ def render_report(
         ),
     ]
     plots_html = "".join(
-        f"<div>{plotting.to_inline_html(fig, f'diag-plot-{i}')}</div>"
+        f"<div>{plotting.to_inline_html(fig, f'diag-plot-{i}', include_js=(i == 0))}</div>"
         for i, fig in enumerate(plots)
     )
+    sample_note = ""
+    if full_n > len(fitted):
+        sample_note = (
+            f'<p style="font-size:12px;color:var(--ink-soft);">Plots show {len(fitted):,} of '
+            f"{full_n:,} points (all extreme points kept, the rest evenly sampled); "
+            "all statistics are computed on the full data.</p>"
+        )
     plots_section = reports.section(
-        "Diagnostic plots", f'<div class="plot-container grid-2">{plots_html}</div>'
+        "Diagnostic plots",
+        f'{sample_note}<div class="plot-container grid-2">{plots_html}</div>',
     )
 
     # 4. Influential observations
@@ -130,7 +178,10 @@ def render_report(
             x=lc["sizes"], y=lc["test_scores"], mode="lines",
             line=dict(color=plotting.WARN, width=2), name="CV score",
         )
-        bv_body += f'<div class="plot-container">{plotting.to_inline_html(fig, "learning-curve")}</div>'
+        bv_body += (
+            '<div class="plot-container">'
+            f'{plotting.to_inline_html(fig, "learning-curve", include_js=False)}</div>'
+        )
     bv_section = reports.section("Bias / variance", bv_body)
 
     # 6. Recommendations
