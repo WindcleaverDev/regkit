@@ -22,6 +22,9 @@ tests/data/
 REGRESSION_PACK_BUILD.md
 REGRESSION_PACK_BUILD_PHASE_2.md
 
+# macOS
+.DS_Store
+
 # Tooling
 .pytest_cache/
 .ruff_cache/

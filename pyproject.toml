@@ -1,7 +1,7 @@
 [project]
-name = "regression-pack"
+name = "regkit"
 version = "0.1.0"
-description = "Statistically rigorous regression skills for Claude — structured outputs, diagnostic-aware reports, plain-English interpretation"
+description = "Statistically rigorous regression skills for Claude — Python computes, the model narrates."
 readme = "README.md"
 requires-python = ">=3.13"
 license = { text = "MIT" }
