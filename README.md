@@ -10,7 +10,6 @@
   <img src="https://img.shields.io/badge/schemas-validated-0F766E?style=flat-square" alt="schemas">
   <img src="https://img.shields.io/badge/python-3.13-0F766E?style=flat-square" alt="python">
   <img src="https://img.shields.io/badge/lint-ruff-6B7280?style=flat-square" alt="lint">
-  <img src="https://img.shields.io/badge/datasets-9%20real--world-6B7280?style=flat-square" alt="datasets">
 </p>
 
 <p align="center">
