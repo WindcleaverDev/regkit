@@ -28,10 +28,9 @@ REGRESSION_PACK_BUILD_PHASE_2.md
 # Demo output (commit the .tape source, not the generated artefacts)
 demo/*.mp4
 demo/*.webm
-demo/
 
 # Screenshots / docs assets
-docs/
+docs/screenshots/
 
 # Tooling
 .pytest_cache/
