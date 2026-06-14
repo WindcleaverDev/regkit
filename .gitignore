@@ -29,8 +29,6 @@ REGRESSION_PACK_BUILD_PHASE_2.md
 demo/*.mp4
 demo/*.webm
 
-# Screenshots / docs assets
-docs/screenshots/
 
 # Tooling
 .pytest_cache/

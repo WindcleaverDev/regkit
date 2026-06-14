@@ -18,11 +18,13 @@
 </p>
 <p align="center"><em>Lasso feature selection, two linear fits, and a model comparison — 25 seconds, deterministic Python under the hood, ready to narrate in chat.</em></p>
 
-<!-- TODO: add docs/screenshots/hero_macro_diagnostics.png — screenshot of examples/output/macro/diagnostics.html at 1100px width -->
+<p align="center">
+  <img src="docs/screenshots/hero_macro_pre_analysis.png" alt="Pre-analysis report on the macro dataset — verdict: FAIL, severe multicollinearity (max VIF = 21598.9)" width="900">
+</p>
 
 ## Why regkit
 
-**Without regkit** — ask an LLM a regression:
+**Without regkit** — ask an LLM to fit a regression:
 
 ```python
 from sklearn.linear_model import LinearRegression
@@ -32,9 +34,11 @@ model = LinearRegression().fit(X, y)
 ```
 
 **With regkit:**
+```
 The model explains 45.2% of variance in tip (adj-R² = 0.452, n=244).
 Only total_bill is significant (β = 0.105, p < 0.001).
 Heteroscedasticity is likely — run diagnostics before trusting inference.
+```
 
 > Most LLM statistics tools let the model do the math. This one doesn't.
 > `regkit` constrains Claude to the judgment layer — choosing transforms,
