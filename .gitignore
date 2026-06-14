@@ -25,6 +25,14 @@ REGRESSION_PACK_BUILD_PHASE_2.md
 # macOS
 .DS_Store
 
+# Demo output (commit the .tape source, not the generated artefacts)
+demo/*.mp4
+demo/*.webm
+demo/
+
+# Screenshots / docs assets
+docs/
+
 # Tooling
 .pytest_cache/
 .ruff_cache/

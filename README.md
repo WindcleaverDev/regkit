@@ -1,19 +1,73 @@
-# regkit
+<p align="center">
+  <img src="docs/banner.svg" alt="regkit" width="280">
+</p>
+<p align="center"><strong>Statistically valid regression for language models.</strong></p>
+<p align="center">Python computes. Claude narrates. Every number is traceable to a statsmodels, scikit-learn, or scipy call.</p>
 
-**Statistically valid regression for language models.**
-Python computes. Claude narrates. Every number is traceable to a statsmodels, scikit-learn, or scipy call.
+<p align="center">
+  <a href="evals/"><img src="https://img.shields.io/badge/evals-33%20passing-0F766E?style=flat-square" alt="evals"></a>
+  <a href=".agents/skills/"><img src="https://img.shields.io/badge/skills-6-0F766E?style=flat-square" alt="skills"></a>
+  <img src="https://img.shields.io/badge/schemas-validated-0F766E?style=flat-square" alt="schemas">
+  <img src="https://img.shields.io/badge/python-3.13-0F766E?style=flat-square" alt="python">
+  <img src="https://img.shields.io/badge/lint-ruff-6B7280?style=flat-square" alt="lint">
+  <img src="https://img.shields.io/badge/datasets-9%20real--world-6B7280?style=flat-square" alt="datasets">
+</p>
+
+<p align="center">
+  <img src="demo/regkit.gif" alt="regkit running Lasso, two linear fits, and a model comparison in one terminal session" width="900">
+</p>
+<p align="center"><em>Lasso feature selection, two linear fits, and a model comparison — 25 seconds, deterministic Python under the hood, ready to narrate in chat.</em></p>
+
+<!-- TODO: add docs/screenshots/hero_macro_diagnostics.png — screenshot of examples/output/macro/diagnostics.html at 1100px width -->
+
+## Why regkit
+
+**Without regkit** — ask an LLM a regression:
+
+```python
+from sklearn.linear_model import LinearRegression
+model = LinearRegression().fit(X, y)
+# coefficients only. no p-values. no diagnostics. no transform awareness.
+# the LLM narrates from these and confidently misinterprets.
+```
+
+**With regkit:**
+The model explains 45.2% of variance in tip (adj-R² = 0.452, n=244).
+Only total_bill is significant (β = 0.105, p < 0.001).
+Heteroscedasticity is likely — run diagnostics before trusting inference.
 
 > Most LLM statistics tools let the model do the math. This one doesn't.
 > `regkit` constrains Claude to the judgment layer — choosing transforms,
 > framing coefficients for the audience, surfacing the one diagnostic issue that matters most.
 > It never does arithmetic and never reports a p-value it didn't compute.
 
-[![evals](https://img.shields.io/badge/evals-33%20passing-0F766E?style=flat-square)](evals/)
-[![skills](https://img.shields.io/badge/skills-6-0F766E?style=flat-square)](.agents/skills/)
-[![python](https://img.shields.io/badge/python-3.13-0EA5E9?style=flat-square)](pyproject.toml)
-[![ruff](https://img.shields.io/badge/lint-ruff-F59E0B?style=flat-square)](pyproject.toml)
+## Design principles
 
----
+1. **Facts, not prose.** Scripts emit `InterpretationFact` objects — canonical claims with confidence grades and caveats. Claude turns the same structured facts into different prose for different audiences without changing the underlying numbers.
+
+2. **Schemas are the contract.** Every cross-skill payload round-trips through a Pydantic model in `regression_pack_core/schemas.py`. Skills chain by reading each other's JSON — the model never passes numbers in prose between turns.
+
+3. **Deterministic and reproducible.** Same data → same numbers, always. Synthetic datasets are seeded; the diagnostics refit verifies it matches the original fit to 1e-6 before trusting any residual.
+
+4. **One visual language.** All plots go through `regression_pack_core.plotting`, all reports through the shared Jinja template and CSS design tokens. Every HTML deliverable is self-contained — Plotly JS inlined, no CDN.
+
+5. **Scales to large data.** Diagnostics runs in O(n) — studentized residuals use the closed-form leave-one-out identity rather than O(n²) refitting. Influence lists are capped at the top 50 by severity; HTML tables at 20 rows; scatter plots at 2,000 points (extremes always kept). True counts are always in the JSON so nothing is silently truncated.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A[User in chat] -->|natural language| B[Claude]
+    B -->|reads SKILL.md| C[regkit skill]
+    C -->|deterministic compute| D[statsmodels / sklearn / scipy]
+    D -->|validated JSON| E[report.json]
+    E -->|interpretation facts| B
+    E -->|render| F[report.html]
+    B -->|narration| A
+
+    classDef accent fill:#0F766E,color:#fff,stroke:#0F766E,stroke-width:1px
+    class B,C,D,E accent
+```
 
 ## Skills at a glance
 
@@ -28,8 +82,6 @@ Python computes. Claude narrates. Every number is traceable to a statsmodels, sc
 
 Skills chain: every `report.json` is the next skill's input.
 
----
-
 ## Quick start
 
 ```bash
@@ -40,7 +92,10 @@ uv run python examples/synth_data.py   # writes synthetic CSVs to examples/data/
 bash tests/run_real_datasets.sh        # runs all 6 skills end-to-end, 0 failures
 ```
 
----
+**Open the repo in Cursor and try:**
+```
+Explore tests/data/diabetes.csv before fitting — target is progression, features are all.
+```
 
 ## Using in Cursor chat
 
@@ -64,14 +119,16 @@ Check for multicollinearity and outliers in my CSV before I fit anything.
 **What Claude does:**
 Calls `audit.py` → reads `pre_analysis.json` → surfaces the most important flag first. If VIF > 10, it tells you which features are collinear and recommends Lasso. If the target is skewed, it suggests a log or Box-Cox transform before you waste a fit.
 
-**Example output it narrates:**
+<details>
+<summary>Show example output</summary>
+
 ```
 Pre-analysis flagged HIGH_VIF on s1–s6 (collinear serum measures; VIF up to 18.4).
 Recommended estimator: regularized-regression.
 Target (progression) is approximately normal — no transform needed.
 ```
 
----
+</details>
 
 ### Linear regression — *"Fit a regression"*
 
@@ -98,7 +155,9 @@ Calls `fit.py` → reads `report.json` → leads with the headline (adj-R², n s
 - *"Log-transform GDP but not population"* → `--log-features gdpPercap`
 - *"Standardise the features"* → `--standardize`
 
-**Example output it narrates:**
+<details>
+<summary>Show example output</summary>
+
 ```
 The model explains 45.2% of variance in tip (adj-R² = 0.452, n=244).
 Only total_bill is significant (β = 0.105, p < 0.001); party size, sex, smoker,
@@ -106,7 +165,7 @@ day, and time add no reliable signal beyond bill size.
 Heteroscedasticity is likely — run diagnostics before trusting inference.
 ```
 
----
+</details>
 
 ### Diagnostics — *"Can I trust this model?"*
 
@@ -143,7 +202,9 @@ Calls `diagnose.py` with the existing `report.json` → reads `diagnostics.json`
 - *Autocorrelation* → warns about spurious regression, suggests GLS or differencing
 - *High VIF* → recommends `regularized-regression` skill
 
-**Real example — macro dataset:**
+<details>
+<summary>Show example output</summary>
+
 ```
 Verdict: unreliable.
 Despite R² = 0.999, three assumptions fail:
@@ -154,7 +215,7 @@ The near-perfect R² is a symptom of spurious regression on integrated time seri
 not a sign of a good model. Consider first-differencing or a cointegration approach.
 ```
 
----
+</details>
 
 ### Regularized regression — *"Handle collinear features"* or *"Do feature selection"*
 
@@ -180,7 +241,9 @@ Calls `fit.py` with `--method lasso/ridge/elasticnet` → reads the report → l
 - *"Use the 1-SE rule"* → `--alpha-rule 1se` (more parsimonious than CV minimum)
 - *"Use ElasticNet with mostly L1"* → `--method elasticnet --l1-ratio 0.8`
 
-**Real example — diabetes dataset:**
+<details>
+<summary>Show example output</summary>
+
 ```
 Lasso (1-SE rule, α = 5.83) retained 5 of 10 features:
    bmi, bp, s3, s5  — kept (strong signal)
@@ -191,7 +254,7 @@ The 5-feature model sacrifices 3.7 pp of explained variance to drop 5 correlated
 serum measures — a reasonable trade for interpretability and stability.
 ```
 
----
+</details>
 
 ### Logistic regression — *"Binary outcome"*
 
@@ -224,7 +287,9 @@ Calls `fit.py` → reads `report.json` → leads with AUC, then narrates **avera
 | `CONVERGENCE_ISSUE` | `max\|β\| > 10` or not converged | Near-perfect separation; coefficients inflated; consider Firth regression |
 | `LOW_AUC` | AUC < 0.65 | Model barely discriminates; check feature relevance |
 
-**Real example — affairs survey:**
+<details>
+<summary>Show example output</summary>
+
 ```
 AUC = 0.744  (n=6,366, 32.2% positive)
 6 of 7 predictors significant at p < 0.05.
@@ -237,7 +302,7 @@ Average marginal effects (probability scale):
   educ, occupation  not significant
 ```
 
----
+</details>
 
 ### Model comparison — *"Which model is best?"*
 
@@ -266,7 +331,9 @@ Calls `compare.py` with the report paths → reads `report.json` → narrates th
 **Cross-family comparisons:**
 AIC is only valid within the same family and outcome. If you mix OLS and logistic, Claude will note this and rank by primary fit metric (adj-R² or pseudo-R²) instead.
 
-**Real example — diabetes:**
+<details>
+<summary>Show example output</summary>
+
 ```
 Verdict: complementary_strengths.  Recommended: OLS (marginal AIC advantage).
 
@@ -281,7 +348,7 @@ more than log-likelihood. Choose OLS if you want the maximum-likelihood estimate
 and are comfortable with all 10 features in the model.
 ```
 
----
+</details>
 
 ## Multi-turn workflows
 
@@ -327,8 +394,6 @@ Turn 3: "Fix it."
 → Claude refits with --robust-se HC3 → shows what changed (SEs widen, p-values shift)
 ```
 
----
-
 ## Test datasets
 
 Nine real-world datasets in `tests/data/`, generated offline from packages in the dependency graph:
@@ -350,8 +415,6 @@ uv run python tests/make_datasets.py
 | `longley.csv` | 16 | `TOTEMP` (continuous) | Severe collinearity (theory only; n too small for CLI) |
 
 See [`tests/README.md`](tests/README.md) for exact CLI commands, expected outputs, and the 11-step Cursor chat testing order.
-
----
 
 ## Repository layout
 
@@ -385,22 +448,6 @@ evals/
   detection/                planted-violation end-to-end tests (pytest)
   triggering/               prompt-level skill-selection eval plan
 ```
-
----
-
-## Design principles
-
-1. **Facts, not prose.** Scripts emit `InterpretationFact` objects — canonical claims with confidence grades and caveats. Claude turns the same structured facts into different prose for different audiences without changing the underlying numbers.
-
-2. **Schemas are the contract.** Every cross-skill payload round-trips through a Pydantic model in `regression_pack_core/schemas.py`. Skills chain by reading each other's JSON — the model never passes numbers in prose between turns.
-
-3. **Deterministic and reproducible.** Same data → same numbers, always. Synthetic datasets are seeded; the diagnostics refit verifies it matches the original fit to 1e-6 before trusting any residual.
-
-4. **One visual language.** All plots go through `regression_pack_core.plotting`, all reports through the shared Jinja template and CSS design tokens. Every HTML deliverable is self-contained — Plotly JS inlined, no CDN.
-
-5. **Scales to large data.** Diagnostics runs in O(n) — studentized residuals use the closed-form leave-one-out identity rather than O(n²) refitting. Influence lists are capped at the top 50 by severity; HTML tables at 20 rows; scatter plots at 2,000 points (extremes always kept). True counts are always in the JSON so nothing is silently truncated.
-
----
 
 ## Development
 
